@@ -23,20 +23,22 @@ export default function App() {
       ]);
       setSummary(summaryData);
       setOpportunities(oppsData);
+      setConnection("connected");
       setError(null);
     } catch (err) {
+      setConnection("offline");
       setError(err.message);
     }
   }, []);
 
   useEffect(() => {
-    api
-      .health()
-      .then(() => {
-        setConnection("connected");
-        loadData();
-      })
-      .catch(() => setConnection("offline"));
+    // Load real data directly on mount, rather than gating on a separate
+    // lightweight health() ping first. On a cold-started backend (e.g.
+    // Render's free tier waking from sleep), a separate ping can time out
+    // even though the real request right after succeeds -- which left the
+    // UI stuck showing "offline" forever. Deriving connection status from
+    // whether real data actually loaded avoids that split-brain state.
+    loadData();
   }, [loadData]);
 
   return (
@@ -51,7 +53,8 @@ export default function App() {
       <main className="px-8 py-10">
         {connection === "offline" && (
           <div className="mb-6 border border-cost/40 bg-cost-soft px-4 py-3 text-sm text-cost">
-            Backend offline. Make sure the FastAPI server is running at http://127.0.0.1:8000
+            Backend unreachable. If this just loaded, the server may be waking up from
+            sleep (free-tier instances can take up to a minute) — try clicking Refresh below shortly.
           </div>
         )}
 
