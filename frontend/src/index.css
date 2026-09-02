@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme {
+  /* Ink-and-ledger palette: this is a decision engine that shows its math,
+     so the aesthetic borrows from financial statements and audit trails --
+     precise, dense, numeric -- rather than a generic SaaS dashboard. */
+  --color-ink: #0f1420;
+  --color-surface: #161c2c;
+  --color-surface-raised: #1c2436;
+  --color-line: #2a3244;
+  --color-line-soft: #1f2637;
+  --color-text: #e8eaed;
+  --color-muted: #8b93a7;
+  --color-faint: #5b6478;
+
+  /* single restrained accent for "gain" (recovered value), a cooler one
+     for "wait/restraint" decisions, and a muted rose for cost/friction --
+     these map directly to the product's own vocabulary */
+  --color-gain: #d9a544;
+  --color-gain-soft: #3a3220;
+  --color-wait: #5fa8a0;
+  --color-wait-soft: #1c2f2d;
+  --color-cost: #c4676b;
+  --color-cost-soft: #2f1e20;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html {
+  background-color: var(--color-ink);
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* tabular numerals everywhere a number appears -- keeps columns of ₹
+   figures aligned, which matters a lot for a page about comparing numbers */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
