@@ -6,3 +6,4 @@ backend/app/ml/model.joblib
 backend/app/ml/feature_columns.json
 frontend/node_modules/
 frontend/dist/
+.env

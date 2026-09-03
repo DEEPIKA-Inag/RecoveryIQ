@@ -6,7 +6,8 @@ Run with:
     uvicorn app.main:app --reload --port 8000
 (from inside the backend/ folder, with the venv activated)
 """
-
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

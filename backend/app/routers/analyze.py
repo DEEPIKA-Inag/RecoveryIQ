@@ -83,6 +83,7 @@ def analyze_transaction(transaction_id: int, db: Session = Depends(get_db)):
         expected_customer_impact_cost=result["expected_customer_impact_cost"],
         expected_net_value=result["expected_net_value"],
         reason=final_reason,
+        explanation_source=explanation_source,
         all_options_json=result["all_options_json"],
     )
     db.add(decision)

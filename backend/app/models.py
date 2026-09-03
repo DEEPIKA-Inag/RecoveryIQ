@@ -106,6 +106,7 @@ class Decision(Base):
     expected_customer_impact_cost = Column(Float, nullable=False)
     expected_net_value = Column(Float, nullable=False)
     reason = Column(Text, nullable=False)
+    explanation_source = Column(String, default="rule_based")  # "llm" or "rule_based" -- shown in UI
 
     # snapshot of ALL options considered, stored as JSON text, for the audit trail
     all_options_json = Column(Text, nullable=False)

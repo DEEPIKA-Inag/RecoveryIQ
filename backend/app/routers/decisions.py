@@ -2,6 +2,7 @@
 routers/decisions.py
 GET /decisions           -- list all past decisions (most recent first)
 GET /audit/{transaction_id} -- full decision + prediction + audit-log history for one transaction
+GET /opportunities       -- joined view powering the 'Recovery Opportunities' dashboard table
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -51,38 +52,7 @@ def recovery_opportunities(db: Session = Depends(get_db), limit: int = 50):
             "recovery_probability": dec.recovery_probability,
             "expected_net_value": dec.expected_net_value,
             "reason": dec.reason,
-            "created_at": dec.created_at,
-        }
-        for dec, txn, cust in rows
-    ]
-
-
-@router.get("/opportunities")
-def recovery_opportunities(db: Session = Depends(get_db), limit: int = 50):
-    """
-    Joined view of Decision + Transaction + Customer, shaped for the
-    'Recovery Opportunities' table on the dashboard:
-    customer | amount | failure | best action | probability | net value | reason
-    """
-    rows = (
-        db.query(models.Decision, models.Transaction, models.Customer)
-        .join(models.Transaction, models.Decision.transaction_id == models.Transaction.id)
-        .join(models.Customer, models.Transaction.customer_id == models.Customer.id)
-        .order_by(models.Decision.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            "transaction_id": txn.id,
-            "customer_name": cust.name,
-            "customer_segment": cust.segment,
-            "amount": txn.amount,
-            "failure_reason": txn.failure_reason,
-            "selected_action": dec.selected_action,
-            "recovery_probability": dec.recovery_probability,
-            "expected_net_value": dec.expected_net_value,
-            "reason": dec.reason,
+            "explanation_source": dec.explanation_source,
             "created_at": dec.created_at,
         }
         for dec, txn, cust in rows
@@ -147,6 +117,7 @@ def audit_trail(transaction_id: int, db: Session = Depends(get_db)):
                 "expected_customer_impact_cost": d.expected_customer_impact_cost,
                 "expected_net_value": d.expected_net_value,
                 "reason": d.reason,
+                "explanation_source": d.explanation_source,
                 "created_at": d.created_at,
             }
             for d in decisions

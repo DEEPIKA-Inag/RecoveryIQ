@@ -29,6 +29,50 @@ function FailureLabel({ reason }) {
   return <span className="text-muted">{reason.replace(/_/g, " ")}</span>;
 }
 
+/**
+ * Shows WHAT the execution step actually did, not just whether it "did
+ * something" (which is true for almost every row, since do_nothing is
+ * mathematically rare -- see engine.py, WAIT can only lose to do_nothing
+ * if self-cure probability is exactly 0%). This is more honest and more
+ * useful: it distinguishes customer-facing outreach from a silent retry
+ * from passive monitoring, all real, meaningfully different outcomes.
+ */
+function StatusBadge({ action }) {
+  const CUSTOMER_FACING = ["whatsapp", "email", "voice", "discount", "human_followup"];
+
+  if (CUSTOMER_FACING.includes(action)) {
+    return <span className="text-xs text-gain">Contacted</span>;
+  }
+  if (action === "retry") {
+    return <span className="text-xs text-wait">Silent retry</span>;
+  }
+  if (action === "wait") {
+    return <span className="text-xs text-wait">Monitoring</span>;
+  }
+  return <span className="text-xs text-faint">Closed</span>;
+}
+
+/**
+ * Shows whether the reason text came from the optional LLM layer or the
+ * always-available rule-based fallback. Purely informational -- both are
+ * treated as equally valid explanations, this just labels the source
+ * honestly rather than implying every explanation was AI-written.
+ */
+function ExplanationSourceBadge({ source }) {
+  if (source === "llm") {
+    return (
+      <span className="inline-block rounded-sm border border-purple/40 bg-purple-soft px-1.5 py-0.5 text-[10px] font-medium text-purple">
+        AI explanation
+      </span>
+    );
+  }
+  return (
+    <span className="inline-block rounded-sm border border-line px-1.5 py-0.5 text-[10px] font-medium text-faint">
+      Rule-based
+    </span>
+  );
+}
+
 export default function OpportunitiesTable({ rows, onSelectTransaction }) {
   if (!rows || rows.length === 0) {
     return (
@@ -49,6 +93,7 @@ export default function OpportunitiesTable({ rows, onSelectTransaction }) {
             <th className="px-4 py-3 font-normal">Amount</th>
             <th className="px-4 py-3 font-normal">Failure</th>
             <th className="px-4 py-3 font-normal">Best action</th>
+            <th className="px-4 py-3 font-normal">Status</th>
             <th className="px-4 py-3 font-normal">Probability</th>
             <th className="px-4 py-3 font-normal">Expected net value</th>
             <th className="px-4 py-3 font-normal">Reason</th>
@@ -72,13 +117,19 @@ export default function OpportunitiesTable({ rows, onSelectTransaction }) {
               <td className="px-4 py-3">
                 <ActionBadge action={row.selected_action} />
               </td>
+              <td className="px-4 py-3">
+                <StatusBadge action={row.selected_action} />
+              </td>
               <td className="px-4 py-3 font-mono text-muted">
                 {(row.recovery_probability * 100).toFixed(0)}%
               </td>
               <td className="px-4 py-3 font-mono text-gain">
                 {formatRupees(row.expected_net_value)}
               </td>
-              <td className="max-w-xs px-4 py-3 text-xs text-muted">{row.reason}</td>
+              <td className="max-w-xs px-4 py-3 text-xs text-muted">
+                <ExplanationSourceBadge source={row.explanation_source} />
+                <div className="mt-1">{row.reason}</div>
+              </td>
             </tr>
           ))}
         </tbody>
