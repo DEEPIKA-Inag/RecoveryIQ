@@ -31,6 +31,7 @@ from ..database import get_db
 from ..decision_engine.engine import evaluate_transaction
 from ..agent.graph import run_agent
 from ..ml.predictor import predict_probability
+from ..explain.explainer import generate_llm_explanation
 from ..config import INTERVENTION_CONFIG, ACTIVE_ACTIONS, BASELINE_DEFAULT_ACTION
 from .helpers import get_or_create_customer, transaction_to_engine_input, customer_to_engine_input
 
@@ -38,6 +39,15 @@ router = APIRouter(tags=["simulate"])
 
 FAILURE_REASONS = ["insufficient_funds", "timeout", "card_declined", "network_error", "bank_server_down"]
 PAYMENT_CHANNELS = ["upi", "card", "netbanking", "wallet"]
+
+# LLM explanations are attempted for only the first N transactions of each
+# batch. Calling an LLM 20-40 times per comparison would make "Run
+# comparison" slow and costly for no real benefit -- this cap lets a demo
+# reliably show at least a few "AI explanation" badges without risking the
+# whole batch's speed on a network call. Rule-based fallback is instant
+# and free, so the rest of the batch stays fast regardless of network
+# conditions.
+LLM_SAMPLE_SIZE = 3
 
 
 def _random_amount():
@@ -142,6 +152,28 @@ def simulate(payload: schemas.SimulateRequest, db: Session = Depends(get_db)):
                 intervention_name=option["action"],
                 recovery_probability=option["recovery_probability"],
             ))
+
+        # LLM explanation attempted only for the first LLM_SAMPLE_SIZE
+        # transactions of the batch (see constant definition above). Falls
+        # back to the same rule-based reason engine.py already computed if
+        # unavailable, times out, or gets truncated -- identical safety
+        # behavior to the single-transaction /analyze endpoint.
+        if i < LLM_SAMPLE_SIZE:
+            llm_reason = generate_llm_explanation({
+                "action": result["recommended_action"],
+                "probability": result["recovery_probability"],
+                "amount": result["amount"],
+                "expected_recovery": result["expected_recovery"],
+                "intervention_cost": result["intervention_cost"],
+                "expected_customer_impact_cost": result["expected_customer_impact_cost"],
+                "net_value": result["expected_net_value"],
+                "failure_reason": transaction.failure_reason,
+            })
+        else:
+            llm_reason = None
+        explanation_source = "llm" if llm_reason else "rule_based"
+        final_reason = llm_reason or result["reason"]
+
         db.add(models.Decision(
             transaction_id=transaction.id,
             selected_action=result["recommended_action"],
@@ -150,13 +182,17 @@ def simulate(payload: schemas.SimulateRequest, db: Session = Depends(get_db)):
             intervention_cost=result["intervention_cost"],
             expected_customer_impact_cost=result["expected_customer_impact_cost"],
             expected_net_value=result["expected_net_value"],
-            reason=result["reason"],
+            reason=final_reason,
+            explanation_source=explanation_source,
             all_options_json=result["all_options_json"],
         ))
         db.add(models.AuditLog(
             transaction_id=transaction.id,
             event_type="decision_made",
-            detail=f"[simulate] Selected '{result['recommended_action']}' with net value {result['expected_net_value']}",
+            detail=(
+                f"[simulate] Selected '{result['recommended_action']}' with net value "
+                f"{result['expected_net_value']} (explanation source: {explanation_source})"
+            ),
         ))
 
         # EXECUTE step's own distinct, timestamped audit event -- produced

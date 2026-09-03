@@ -6,21 +6,25 @@ Run with:
     uvicorn app.main:app --reload --port 8000
 (from inside the backend/ folder, with the venv activated)
 """
+
 from dotenv import load_dotenv
 load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
 from . import models  # noqa: F401  (import so tables are registered on Base)
-from .routers import transactions, analyze, decisions, dashboard, simulate, allocate, model_quality
+from .routers import transactions, analyze, decisions, dashboard, simulate, allocate, model_quality, ask
+
 app = FastAPI(
     title="Recovery IQ",
     description="Economic decision engine for payment recovery",
     version="0.1.0",
 )
 
-# Allow the React dev server (Vite default port 5173) to call this API during development
+# Allow the React dev server (Vite default port 5173) and the deployed
+# Vercel frontend to call this API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -32,7 +36,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-    
 
 
 @app.on_event("startup")
@@ -49,6 +52,9 @@ app.include_router(dashboard.router)
 app.include_router(simulate.router)
 app.include_router(allocate.router)
 app.include_router(model_quality.router)
+app.include_router(ask.router)
+
+
 @app.get("/")
 def root():
     return {"status": "ok", "service": "Recovery IQ backend"}

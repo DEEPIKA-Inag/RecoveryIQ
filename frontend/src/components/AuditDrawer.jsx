@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import AskBox from "./AskBox";
 
 function formatRupees(value) {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -137,7 +138,9 @@ export default function AuditDrawer({ transactionId, onClose }) {
                     </div>
                   </section>
                 );
-              })()}
+                            })()}
+
+              <AskBox transactionId={transactionId} />
 
               <section>
                 <p className="mb-2 text-sm text-muted">All options the model scored</p>

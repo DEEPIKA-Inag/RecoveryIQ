@@ -98,5 +98,11 @@ export const api = {
       body: JSON.stringify({ batch_size: batchSize, budget_cap: budgetCap }),
     }),
 
-  modelQuality: () => request("/model-quality"),
+    modelQuality: () => request("/model-quality"),
+
+  ask: (transactionId, question) =>
+    request(`/ask/${transactionId}`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
 };
