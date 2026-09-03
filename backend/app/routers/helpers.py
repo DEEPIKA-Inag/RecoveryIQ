@@ -38,6 +38,10 @@ def get_or_create_customer(db: Session, customer_id: int) -> models.Customer:
         past_call_success=random.randint(0, 2),
         past_call_attempts=random.randint(0, 3),
         past_opt_outs=random.choice([0, 0, 0, 1]),
+        # Small, realistic odds so guardrails actually trigger in demo batches
+        # without dominating them.
+        is_opted_out=random.random() < 0.08,
+        is_fraud_flagged=random.random() < 0.03,
     )
     db.add(customer)
     db.commit()
@@ -66,4 +70,6 @@ def customer_to_engine_input(customer: models.Customer) -> dict:
         "past_email_attempts": customer.past_email_attempts,
         "past_call_success": customer.past_call_success,
         "past_call_attempts": customer.past_call_attempts,
+        "is_opted_out": customer.is_opted_out,
+        "is_fraud_flagged": customer.is_fraud_flagged,
     }

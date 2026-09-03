@@ -4,13 +4,15 @@ POST /simulate -- generates a batch of synthetic failed payments, runs BOTH
 strategies against the same batch, and returns a side-by-side comparison.
 
 BASELINE strategy: "contact everyone" via a single default active channel
-  (config.BASELINE_DEFAULT_ACTION), regardless of economics. This models
-  what a system without Recovery IQ's decision layer effectively does --
-  every failure gets an action.
+  (config.BASELINE_DEFAULT_ACTION), regardless of economics. Even the naive
+  baseline respects hard legal/compliance stops (opt-out, fraud-flag) -- no
+  real system would ignore those. It deliberately does NOT respect quiet
+  hours or the contact-attempt cap, which is exactly the "dumb" behavior
+  Recovery IQ's guardrails improve on.
 
-RECOVERY IQ strategy: runs the real decision engine (same code path as
-  /analyze) and picks whichever option -- including WAIT/DO_NOTHING --
-  maximizes expected net value.
+RECOVERY IQ strategy: runs the full agent (detect -> determine -> execute,
+  built on LangGraph -- see app/agent/graph.py) and picks whichever option
+  -- including WAIT/DO_NOTHING -- maximizes expected net value.
 
 Both strategies are compared using EXPECTED VALUE math (not random simulated
 outcomes) so the demo numbers are fully reproducible and fully auditable --
@@ -27,6 +29,7 @@ from sqlalchemy import func
 from .. import models, schemas
 from ..database import get_db
 from ..decision_engine.engine import evaluate_transaction
+from ..agent.graph import run_agent
 from ..ml.predictor import predict_probability
 from ..config import INTERVENTION_CONFIG, ACTIVE_ACTIONS, BASELINE_DEFAULT_ACTION
 from .helpers import get_or_create_customer, transaction_to_engine_input, customer_to_engine_input
@@ -86,31 +89,53 @@ def simulate(payload: schemas.SimulateRequest, db: Session = Depends(get_db)):
         cust_input = customer_to_engine_input(customer)
 
         # ---------- BASELINE: always contact via the default channel ----------
-        baseline_action = BASELINE_DEFAULT_ACTION
-        baseline_probability = predict_probability(txn_input, cust_input, baseline_action)
-        cfg = INTERVENTION_CONFIG[baseline_action]
+        # Even the naive baseline respects hard legal/compliance stops (opt-out,
+        # fraud-flag) -- no real system would ignore those. It deliberately does
+        # NOT respect quiet hours or the contact-attempt cap, which is exactly
+        # the "dumb" behavior Recovery IQ's guardrails improve on.
+        baseline_hard_blocked = cust_input["is_opted_out"] or cust_input["is_fraud_flagged"]
 
-        b_expected_recovery = transaction.amount * baseline_probability
-        b_cost = cfg["base_cost"]
-        b_impact_cost = cfg["annoyance_weight"] * transaction.amount * (1 - baseline_probability)
+        if baseline_hard_blocked:
+            baseline_probability = predict_probability(txn_input, cust_input, "none")
+            b_expected_recovery = transaction.amount * baseline_probability
+            b_cost = 0.0
+            b_impact_cost = 0.0
+            baseline_contacted = False
+        else:
+            baseline_action = BASELINE_DEFAULT_ACTION
+            baseline_probability = predict_probability(txn_input, cust_input, baseline_action)
+            cfg = INTERVENTION_CONFIG[baseline_action]
+            b_expected_recovery = transaction.amount * baseline_probability
+            b_cost = cfg["base_cost"]
+            b_impact_cost = cfg["annoyance_weight"] * transaction.amount * (1 - baseline_probability)
+            baseline_contacted = True
 
         baseline_revenue += b_expected_recovery
         baseline_cost += b_cost
         baseline_impact_cost += b_impact_cost
-        baseline_contacts += 1  # baseline always contacts
+        if baseline_contacted:
+            baseline_contacts += 1
 
         db.add(models.Outcome(
             transaction_id=transaction.id,
             recovered=baseline_probability >= 0.5,
             amount_recovered=round(b_expected_recovery, 2),
-            contacted=True,
+            contacted=baseline_contacted,
             churn_or_annoyance_flag=b_impact_cost > 0,
             strategy_label="baseline",
         ))
 
-        # ---------- RECOVERY IQ: full economic decision engine ----------
-        result = evaluate_transaction(txn_input, cust_input)
+        # ---------- RECOVERY IQ: full agent (detect -> determine -> execute) ----------
+        agent_state = run_agent(
+            transaction=txn_input,
+            customer=cust_input,
+            customer_name=customer.name,
+            payment_channel=transaction.payment_channel,
+        )
+        result = agent_state["result"]
+        execution = agent_state["execution"]
 
+        # persist the real decision, same as /analyze does
         for option in result["all_options"]:
             db.add(models.Prediction(
                 transaction_id=transaction.id,
@@ -132,6 +157,14 @@ def simulate(payload: schemas.SimulateRequest, db: Session = Depends(get_db)):
             transaction_id=transaction.id,
             event_type="decision_made",
             detail=f"[simulate] Selected '{result['recommended_action']}' with net value {result['expected_net_value']}",
+        ))
+
+        # EXECUTE step's own distinct, timestamped audit event -- produced
+        # by the agent's execute node, separate from the decision event.
+        db.add(models.AuditLog(
+            transaction_id=transaction.id,
+            event_type="action_executed",
+            detail=execution["detail"],
         ))
 
         iq_revenue += result["expected_recovery"]

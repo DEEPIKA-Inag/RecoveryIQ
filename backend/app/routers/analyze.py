@@ -1,6 +1,6 @@
 """
 routers/analyze.py
-POST /analyze/{transaction_id}   -- run the decision engine, persist the decision, return the result
+POST /analyze/{transaction_id}   -- run the agent (detect->determine->execute), persist everything, return the result
 GET  /recovery-options/{transaction_id} -- return all ranked options without persisting a new decision
 """
 
@@ -12,6 +12,7 @@ from typing import List
 from .. import models, schemas
 from ..database import get_db
 from ..decision_engine.engine import evaluate_transaction
+from ..agent.graph import run_agent
 from ..explain.explainer import generate_llm_explanation
 from .helpers import transaction_to_engine_input, customer_to_engine_input
 
@@ -34,7 +35,19 @@ def analyze_transaction(transaction_id: int, db: Session = Depends(get_db)):
 
     txn_input = transaction_to_engine_input(transaction)
     cust_input = customer_to_engine_input(customer)
-    result = evaluate_transaction(txn_input, cust_input)
+
+    # Run the full detect -> determine -> execute agent (LangGraph). This
+    # replaces separate calls to evaluate_transaction()/execute_action() --
+    # the underlying logic in engine.py/guardrails.py/executor.py is
+    # unchanged, only the orchestration is now graph-based.
+    agent_state = run_agent(
+        transaction=txn_input,
+        customer=cust_input,
+        customer_name=customer.name,
+        payment_channel=transaction.payment_channel,
+    )
+    result = agent_state["result"]
+    execution = agent_state["execution"]
 
     # Try an LLM-generated explanation; falls back to the rule-based reason
     # from the decision engine if the LLM is unavailable or fails. The LLM
@@ -81,6 +94,14 @@ def analyze_transaction(transaction_id: int, db: Session = Depends(get_db)):
             f"Selected '{result['recommended_action']}' with net value "
             f"{result['expected_net_value']} (explanation source: {explanation_source})"
         ),
+    ))
+
+    # EXECUTE step's own distinct, timestamped audit event -- produced by
+    # the agent's execute node, separate from the decision event above.
+    db.add(models.AuditLog(
+        transaction_id=transaction_id,
+        event_type="action_executed",
+        detail=execution["detail"],
     ))
 
     db.commit()

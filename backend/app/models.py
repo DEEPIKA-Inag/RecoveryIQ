@@ -44,6 +44,11 @@ class Customer(Base):
     past_call_attempts = Column(Integer, default=0)
     past_opt_outs = Column(Integer, default=0)               # times they complained/unsubscribed
 
+    # Hard compliance flags -- checked by guardrails.py BEFORE the EV engine
+    # runs. These are policy stops, never economic decisions.
+    is_opted_out = Column(Boolean, default=False)
+    is_fraud_flagged = Column(Boolean, default=False)
+
     transactions = relationship("Transaction", back_populates="customer")
 
 
@@ -133,6 +138,6 @@ class AuditLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False)
-    event_type = Column(String, nullable=False)   # "prediction_generated", "decision_made", "outcome_recorded"
+    event_type = Column(String, nullable=False)   # "prediction_generated", "decision_made", "outcome_recorded", "action_executed"
     detail = Column(Text, nullable=False)
     created_at = Column(DateTime, default=utcnow)
