@@ -20,16 +20,34 @@ a fraud-flagged account is a risk unrelated to annoying anyone.
 
 Cheaper than a model call, so these run first and short-circuit prediction
 for actions that would be blocked anyway.
+
+TIMEZONE NOTE: quiet hours are evaluated in IST (Asia/Kolkata), regardless
+of what timezone the server itself runs in. This matters because a server
+in the US or on UTC (e.g. Render's default) would otherwise apply "quiet
+hours" based on ITS local clock, not the Indian merchant's -- which caused
+every decision to look guardrail-blocked when deployed, even at 2pm IST,
+because the server's raw UTC clock happened to fall in the naive 22:00-08:00
+window. Explicit `now` overrides (used in tests) are used as-is and NOT
+re-localized, so existing tests describing "11pm" etc. keep working.
 """
 
 from datetime import datetime
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from ..config import QUIET_HOURS_START_HOUR, QUIET_HOURS_END_HOUR, MAX_CONTACT_ATTEMPTS
 
+IST = ZoneInfo("Asia/Kolkata")
+
 
 def is_within_quiet_hours(now: Optional[datetime] = None) -> bool:
-    now = now or datetime.now()
+    if now is None:
+        # Real production call: always evaluate in IST, regardless of the
+        # server's own local timezone (e.g. UTC on Render).
+        now = datetime.now(IST)
+    # else: an explicit `now` was passed (e.g. from a test) -- use its hour
+    # directly, as-is, without re-localizing, so tests stay predictable.
+
     hour = now.hour
     if QUIET_HOURS_START_HOUR > QUIET_HOURS_END_HOUR:
         # window wraps past midnight, e.g. 22 -> 8
@@ -63,7 +81,7 @@ def contact_block_reasons(customer: dict, now: Optional[datetime] = None) -> Lis
     if customer.get("past_recovery_attempts", 0) >= MAX_CONTACT_ATTEMPTS:
         reasons.append(f"contact cap reached ({MAX_CONTACT_ATTEMPTS} prior attempts)")
     if is_within_quiet_hours(now):
-        reasons.append("current time is within configured quiet hours")
+        reasons.append("current time is within configured quiet hours (IST)")
     return reasons
 
 
